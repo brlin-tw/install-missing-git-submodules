@@ -1,4 +1,4 @@
-# installing-missing-git-submodules
+# install-missing-git-submodules
 
 
 
