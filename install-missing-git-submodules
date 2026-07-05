@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# Checks for missing Git submodules in the current repository
+# and adds them if they are not already tracked in the Git index.
+#
+# Copyright 2026 林博仁(Buo-ren Lin) <buo.ren.lin@gmail.com>
+# SPDX-License-Identifier: CC-BY-SA-4.0
+
+main() {
+    if ! test -f .gitmodules; then
+        printf 'Info: No .gitmodules file found. Nothing to do.\n'
+        return 0
+    fi
+
+    printf \
+        'Info: Loading Git config options from .gitmodules...\n'
+    local gitmodules_options_raw
+    if ! gitmodules_options_raw="$(
+        git config list \
+            --file .gitmodules \
+            --name-only \
+            2>/dev/null
+        )"; then
+        printf \
+            'Error: Unable to load Git config options from .gitmodules.\n' \
+            >&2
+        return 1
+    fi
+
+    printf \
+        'Info: Matching submodule definitions in .gitmodules...\n'
+    local regex_submodule_path_configs='^submodule\..*\.path$'
+    local submodule_path_configs_raw
+    local -a grep_opts=(
+        --extended-regexp
+        --regexp "${regex_submodule_path_configs}"
+    )
+    if ! submodule_path_configs_raw="$(
+        grep "${grep_opts[@]}" <<<"${gitmodules_options_raw}"
+        )"; then
+        printf \
+            'Info: No submodule definitions found in .gitmodules. Nothing to do.\n'
+        return 0
+    fi
+
+    local -a submodule_path_configs=()
+    if ! mapfile -t submodule_path_configs <<<"${submodule_path_configs_raw}"; then
+        printf \
+            'Error: Unable to load submodule path configurations to an array.\n' \
+            >&2
+        return 1
+    fi
+
+    if test "${#submodule_path_configs[@]}" -eq 0; then
+        printf \
+            'Info: No submodule definitions found in .gitmodules. Nothing to do.\n'
+        return 0
+    fi
+
+    local -a submodule_names=()
+    local submodule_name_raw submodule_name
+    for path_config in "${submodule_path_configs[@]}"; do
+        submodule_name_raw="${path_config#submodule.}"
+        submodule_name="${submodule_name_raw%.path}"
+        submodule_names+=("${submodule_name}")
+    done
+
+    printf \
+        'Info: Found %d submodule definitions in .gitmodules:\n\n' \
+        "${#submodule_path_configs[@]}"
+    for submodule_name in "${submodule_names[@]}"; do
+        printf '  - %s\n' "${submodule_name}"
+    done
+    printf '\n'
+
+    local submodule_path_config submodule_path
+    local submodule_url_config submodule_url
+    for submodule_name in "${submodule_names[@]}"; do
+        printf \
+            'Info: Checking submodule "%s" for missing Git submodules...\n' \
+            "${submodule_name}"
+
+        printf \
+            'Info: Querying the local path of the "%s" submodule...\n' \
+            "${submodule_name}"
+        submodule_path_config="submodule.${submodule_name}.path"
+        if ! submodule_path="$(
+            git config get \
+                -f .gitmodules \
+                "${submodule_path_config}"
+            )"; then
+            printf \
+                'Error: Unable to get local path of the "%s" submodule from .gitmodules.\n' \
+                "${submodule_name}" \
+                >&2
+            exit 1
+        fi
+        printf \
+            'Info: The local path of the "%s" submodule determined to be "%s".\n' \
+            "${submodule_name}" \
+            "${submodule_path}"
+
+        # Check if this path is already registered as a gitlink (mode 160000) in the index
+        if git ls-files \
+            --stage "${submodule_path}" \
+            | grep -q '^160000'; then
+            printf \
+                'Info: Skipping "%s" - Already tracked in the Git index.\n' \
+                "${submodule_name}"
+            continue
+        fi
+
+        submodule_url_config="submodule.${submodule_name}.url"
+        if ! submodule_url="$(
+            git config get \
+                -f .gitmodules \
+                "${submodule_url_config}"
+            )"; then
+            printf \
+                'Error: Unable to query URL of the "%s" submodule from .gitmodules.\n' \
+                "${submodule_name}" \
+                >&2
+            exit 1
+        fi
+        printf \
+            'Info: The URL of the "%s" submodule determined to be "%s".\n' \
+            "${submodule_name}" \
+            "${submodule_url}"
+
+        printf \
+            'Info: Adding missing submodule: %s (%s)...\n' \
+            "${submodule_name}" \
+            "${submodule_url}"
+        if ! git submodule add \
+            --name "${submodule_name}" \
+            --depth 1 \
+            --force \
+            "${submodule_url}" \
+            "${submodule_path}"; then
+            printf \
+                'Error: Unable to add missing submodule: %s (%s).\n' \
+                "${submodule_name}" \
+                "${submodule_url}" \
+                >&2
+            exit 1
+        fi
+    done
+
+    printf 'Info: Operation completed without errors.\n'
+}
+
+set_opts=(
+    -o errexit
+    -o nounset
+    -o errtrace
+)
+if ! set "${set_opts[@]}"; then
+    printf \
+        'Error: Unable to set defensive interpreter behaviors.\n' \
+        >&2
+    exit 1
+fi
+
+main "$@"
