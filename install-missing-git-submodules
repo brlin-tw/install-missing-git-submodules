@@ -6,7 +6,15 @@
 # SPDX-License-Identifier: CC-BY-SA-4.0
 
 main() {
-    if ! test -f .gitmodules; then
+    if test "${#}" -gt 1; then
+        printf \
+            'Error: Too many arguments. Only one optional argument is allowed.\n' \
+            >&2
+        exit 1
+    fi
+
+    local gitmodules_file="${1:-.gitmodules}"
+    if ! test -f "${gitmodules_file}"; then
         printf 'Info: No .gitmodules file found. Nothing to do.\n'
         return 0
     fi
@@ -16,7 +24,7 @@ main() {
     local gitmodules_options_raw
     if ! gitmodules_options_raw="$(
         git config list \
-            --file .gitmodules \
+            --file "${gitmodules_file}" \
             --name-only \
             2>/dev/null
         )"; then
@@ -85,7 +93,7 @@ main() {
         submodule_path_config="submodule.${submodule_name}.path"
         if ! submodule_path="$(
             git config get \
-                -f .gitmodules \
+                --file "${gitmodules_file}" \
                 "${submodule_path_config}"
             )"; then
             printf \
@@ -112,7 +120,7 @@ main() {
         submodule_url_config="submodule.${submodule_name}.url"
         if ! submodule_url="$(
             git config get \
-                -f .gitmodules \
+                --file "${gitmodules_file}" \
                 "${submodule_url_config}"
             )"; then
             printf \
